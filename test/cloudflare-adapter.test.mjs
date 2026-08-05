@@ -6,6 +6,7 @@ import {
   buildChatRequest,
   chatResponseToResponses,
   CloudflareResponsesAdapter,
+  hasUsableChatOutput,
   responseEvents,
   responsesInputToChat,
   responsesToolsToChat,
@@ -127,6 +128,12 @@ test("restores wrapped Chat calls to Responses custom tool calls", () => {
   });
 });
 
+test("distinguishes usable output from reasoning-only completions", () => {
+  assert.equal(hasUsableChatOutput({ choices: [{ message: { content: null, reasoning_content: "thinking" } }] }), false);
+  assert.equal(hasUsableChatOutput({ choices: [{ message: { content: "answer" } }] }), true);
+  assert.equal(hasUsableChatOutput({ choices: [{ message: { content: null, tool_calls: [{ id: "call_1" }] } }] }), true);
+});
+
 test("converts a completed response into Codex-compatible SSE events", () => {
   const response = chatResponseToResponses({
     model: "test", choices: [{ message: { role: "assistant", content: "hello" } }],
@@ -207,4 +214,30 @@ test("completes a model tool-call round trip using string-only Chat content", as
     { role: "assistant", content: "", tool_calls: [{ id: "call_1", type: "function", function: { name: "exec", arguments: "{}" } }] },
     { role: "tool", tool_call_id: "call_1", content: "file.txt" },
   ]);
+});
+
+test("retries one reasoning-only completion instead of silently completing", async (t) => {
+  let calls = 0;
+  const upstream = http.createServer(async (request, response) => {
+    for await (const _chunk of request) { /* consume request */ }
+    calls++;
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      model: "test",
+      choices: [{ message: calls === 1
+        ? { role: "assistant", content: null, reasoning_content: "thinking" }
+        : { role: "assistant", content: "answer" } }],
+    }));
+  });
+  const upstreamBaseUrl = await listen(upstream);
+  const adapter = new CloudflareResponsesAdapter({ upstreamBaseUrl, apiKey: "test-key" });
+  const adapterBaseUrl = await adapter.listen();
+  t.after(async () => { await adapter.close(); await new Promise((resolve) => upstream.close(resolve)); });
+  const response = await fetch(`${adapterBaseUrl}/responses`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: "test", input: "hello" }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal(calls, 2);
+  assert.match(await response.text(), /answer/);
 });

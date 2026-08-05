@@ -145,6 +145,14 @@ export function appendAssistantMessage(messages, chat) {
   return [...messages, saved];
 }
 
+export function hasUsableChatOutput(chat) {
+  const message = chat.choices?.[0]?.message;
+  return Boolean(
+    (typeof message?.content === "string" && message.content.length)
+    || (Array.isArray(message?.tool_calls) && message.tool_calls.length),
+  );
+}
+
 export function responseEvents(response) {
   let sequence = 0;
   const events = [];
@@ -216,18 +224,35 @@ export class CloudflareResponsesAdapter {
         return response.end('{"error":{"message":"Previous model response is no longer available."}}');
       }
       const body = buildChatRequest(incoming, priorMessages);
-      const upstream = await fetch(`${this.upstreamBaseUrl}/chat/completions`, {
-        method: "POST",
-        signal: AbortSignal.timeout(90_000),
-        headers: { authorization: `Bearer ${this.apiKey}`, "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const result = await upstream.json();
-      console.log(`Model request completed with HTTP ${upstream.status} in ${Date.now() - startedAt} ms.`);
-      if (!upstream.ok) {
-        response.writeHead(upstream.status, { "content-type": "application/json" });
-        return response.end(JSON.stringify(result));
+      let result;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        const upstream = await fetch(`${this.upstreamBaseUrl}/chat/completions`, {
+          method: "POST",
+          signal: AbortSignal.timeout(90_000),
+          headers: { authorization: `Bearer ${this.apiKey}`, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        result = await upstream.json();
+        console.log(`Model request completed with HTTP ${upstream.status} in ${Date.now() - startedAt} ms.`);
+        if (!upstream.ok) {
+          response.writeHead(upstream.status, { "content-type": "application/json" });
+          return response.end(JSON.stringify(result));
+        }
+        if (hasUsableChatOutput(result)) break;
+        console.warn(`Model returned no usable output${attempt === 1 ? "; retrying once." : "."}`);
       }
+      if (!hasUsableChatOutput(result)) {
+        response.writeHead(502, { "content-type": "application/json" });
+        return response.end('{"error":{"message":"Model returned no usable output."}}');
+      }
+      const upstreamMessage = result.choices?.[0]?.message || {};
+      console.log(JSON.stringify({
+        event: "model_response_shape",
+        finishReason: result.choices?.[0]?.finish_reason ?? null,
+        textLength: typeof upstreamMessage.content === "string" ? upstreamMessage.content.length : 0,
+        reasoningLength: typeof upstreamMessage.reasoning_content === "string" ? upstreamMessage.reasoning_content.length : 0,
+        toolNames: (upstreamMessage.tool_calls || []).map((call) => call?.function?.name).filter(Boolean),
+      }));
       const customToolNames = new Set((incoming.tools || []).filter((tool) => tool?.type === "custom").map((tool) => tool.name));
       const converted = chatResponseToResponses(result, previousId, customToolNames);
       this.#conversations.set(converted.id, appendAssistantMessage(body.messages, result));
