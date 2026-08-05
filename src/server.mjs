@@ -1,9 +1,10 @@
 import http from "node:http";
-import { readFile } from "node:fs/promises";
+import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CodexClient } from "./codex-client.mjs";
 import { loadConfig, prepareCodexHome } from "./config.mjs";
+import { CloudflareResponsesAdapter } from "./cloudflare-adapter.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const assets = new Map([
@@ -12,7 +13,23 @@ const assets = new Map([
   ["/styles.css", ["public/styles.css", "text/css; charset=utf-8"]],
 ]);
 const config = loadConfig();
-await prepareCodexHome(config);
+let modelApiKey = process.env.BIUNIVERS_MODEL_API_KEY;
+const modelKeyFile = process.env.BIUNIVERS_MODEL_KEY_FILE;
+if (!modelApiKey && modelKeyFile) {
+  try {
+    modelApiKey = (await readFile(modelKeyFile, "utf8")).trim();
+  } finally {
+    await unlink(modelKeyFile).catch(() => {});
+    delete process.env.BIUNIVERS_MODEL_KEY_FILE;
+  }
+}
+if (!modelApiKey) throw new Error("BIUNIVERS_MODEL_API_KEY is required.");
+const adapter = new CloudflareResponsesAdapter({
+  upstreamBaseUrl: config.baseUrl,
+  apiKey: modelApiKey,
+});
+const providerBaseUrl = await adapter.listen();
+await prepareCodexHome(config, providerBaseUrl);
 const codex = new CodexClient({ cwd: config.workspace, codexHome: config.codexHome });
 await codex.initialize();
 
@@ -85,6 +102,6 @@ const server = http.createServer(async (request, response) => {
 });
 
 server.listen(config.port, "0.0.0.0", () => console.log(`Biunivers Codex listening on 0.0.0.0:${config.port}`));
-const shutdown = () => server.close(() => { codex.stop(); process.exit(0); });
+const shutdown = () => server.close(async () => { codex.stop(); await adapter.close(); process.exit(0); });
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);

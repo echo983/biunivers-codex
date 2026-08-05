@@ -22,6 +22,7 @@ RUN . "$NVM_DIR/nvm.sh" \
     && chmod -R a+rX /opt/node-global
 WORKDIR /app
 COPY --chown=65532:65532 package.json server.mjs ./
+COPY --chown=65532:65532 --chmod=755 entrypoint.sh ./
 COPY --chown=65532:65532 src ./src
 COPY --chown=65532:65532 public ./public
 COPY --chown=65532:65532 preset ./preset
@@ -32,5 +33,4 @@ ENV NODE_ENV=production \
     BIUNIVERS_WORKSPACE=/workspace
 USER 65532:65532
 EXPOSE 8080
-ENTRYPOINT []
-CMD ["node", "server.mjs"]
+ENTRYPOINT ["/app/entrypoint.sh"]

@@ -37,6 +37,14 @@ if test "$READY" != true; then
 fi
 curl -fsS "http://127.0.0.1:$PORT/" | grep -q "Biunivers Codex"
 test "$(docker inspect -f '{{.Config.User}}' "$CONTAINER")" = "65532:65532"
+if docker exec "$CONTAINER" sh -c 'tr "\\0" "\\n" < /proc/1/environ | grep -q "^BIUNIVERS_MODEL_API_KEY="'; then
+  echo "敏感变量仍存在于 PID 1 环境。" >&2
+  exit 1
+fi
+if docker exec "$CONTAINER" test -e /tmp/.biunivers-model-api-key; then
+  echo "一次性敏感变量文件未被删除。" >&2
+  exit 1
+fi
 if docker exec "$CONTAINER" sh -c 'grep -R "verification-secret" /workspace >/dev/null 2>&1'; then
   echo "敏感变量被写入 Workspace。" >&2
   exit 1

@@ -9,9 +9,13 @@ export class CodexClient extends EventEmitter {
 
   constructor({ cwd, codexHome }) {
     super();
+    const childEnv = { ...process.env, CODEX_HOME: codexHome };
+    delete childEnv.BIUNIVERS_MODEL_API_KEY;
+    delete childEnv.CLOUDFLARE_API_KEY;
+    delete childEnv.CLOUDFLARE_API_TOKEN;
     this.#proc = spawn("codex", ["app-server"], {
       cwd,
-      env: { ...process.env, CODEX_HOME: codexHome },
+      env: childEnv,
       stdio: ["pipe", "pipe", "pipe"],
     });
     readline.createInterface({ input: this.#proc.stdout }).on("line", (line) => this.#receive(line));

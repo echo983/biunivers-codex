@@ -7,6 +7,6 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test",
-    "check": "node --check server.mjs && node --check src/codex-client.mjs && node --check src/config.mjs && node --check public/app.js"
+    "check": "node --check server.mjs && node --check src/codex-client.mjs && node --check src/cloudflare-adapter.mjs && node --check src/config.mjs && node --check public/app.js"
   }
 }

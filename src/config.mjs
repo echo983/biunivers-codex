@@ -19,32 +19,36 @@ export function loadConfig(env = process.env) {
   };
 }
 
-export async function prepareCodexHome(config) {
+export async function prepareCodexHome(config, providerBaseUrl = config.baseUrl) {
   await mkdir(config.codexHome, { recursive: true, mode: 0o700 });
   const preset = await readFile(new URL("../preset/AGENTS.md", import.meta.url), "utf8");
-  const providerAuth = config.apiKeyPresent
-    ? 'env_key = "BIUNIVERS_MODEL_API_KEY"\n'
-    : "";
   const toml = `model = ${quote(config.model)}
 model_provider = "biunivers_cloudflare"
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
+web_search = "disabled"
 developer_instructions = ${quote(preset)}
 
 [model_providers.biunivers_cloudflare]
 name = "Cloudflare Workers AI"
-base_url = ${quote(config.baseUrl)}
+base_url = ${quote(providerBaseUrl)}
 wire_api = "responses"
 requires_openai_auth = false
-${providerAuth}
+
+[features]
+multi_agent = false
+
+[tools]
+view_image = false
+
 [shell_environment_policy]
 inherit = "core"
 ignore_default_excludes = false
 
 [shell_environment_policy.filters]
-BIUNIVERS_MODEL_API_KEY = false
-CLOUDFLARE_API_KEY = false
-CLOUDFLARE_API_TOKEN = false
+BIUNIVERS_MODEL_API_KEY = "exclude"
+CLOUDFLARE_API_KEY = "exclude"
+CLOUDFLARE_API_TOKEN = "exclude"
 `;
   await writeFile(path.join(config.codexHome, "config.toml"), toml, { mode: 0o600 });
 }
