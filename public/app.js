@@ -28,8 +28,12 @@ events.onmessage = ({ data }) => {
     agentMessage.textContent += event.params?.delta || "";
     messages.scrollTop = messages.scrollHeight;
   }
-  if (event.method === "item/started" && event.params?.item?.type !== "agentMessage") activity(`正在执行：${event.params?.item?.type || "任务"}`);
-  if (event.method === "turn/completed") busy(false);
+  if (event.method === "item/started" && !["agentMessage", "userMessage"].includes(event.params?.item?.type)) activity(`正在执行：${event.params?.item?.type || "任务"}`);
+  if (event.method === "turn/completed") {
+    const turn = event.params?.turn;
+    if (turn?.status === "failed") activity(`任务失败：${turn.error?.message || "模型调用失败。"}`);
+    busy(false);
+  }
   if (event.method === "app/error") { activity(event.params.message); busy(false); }
 };
 events.onerror = () => { status.textContent = "连接中断，正在重连…"; };

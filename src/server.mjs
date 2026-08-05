@@ -45,7 +45,15 @@ codex.on("notification", (message) => {
   if (message.method === "turn/completed") activeTurnId = null;
   publish(message);
 });
+codex.on("diagnostic", (message) => console.error(`Codex: ${safeDiagnostic(message)}`));
 codex.on("exit", (error) => publish({ method: "app/error", params: { message: error.message } }));
+
+function safeDiagnostic(value) {
+  return String(value)
+    .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
+    .replace(/((?:api[_-]?key|token|secret|password)\s*[:=]\s*)\S+/gi, "$1[REDACTED]")
+    .slice(-4096);
+}
 
 async function json(request) {
   const chunks = [];

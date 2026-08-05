@@ -63,6 +63,7 @@ export class CloudflareResponsesAdapter {
   close() { return new Promise((resolve) => this.#server.close(resolve)); }
 
   async #handle(request, response) {
+    const startedAt = Date.now();
     try {
       if (request.method !== "POST" || request.url !== "/v1/responses") {
         response.writeHead(404, { "content-type": "application/json" });
@@ -73,10 +74,12 @@ export class CloudflareResponsesAdapter {
       const body = adaptRequest(JSON.parse(Buffer.concat(chunks).toString("utf8")));
       const upstream = await fetch(`${this.upstreamBaseUrl}/responses`, {
         method: "POST",
+        signal: AbortSignal.timeout(90_000),
         headers: { authorization: `Bearer ${this.apiKey}`, "content-type": "application/json" },
         body: JSON.stringify(body),
       });
       const result = await upstream.json();
+      console.log(`Model request completed with HTTP ${upstream.status} in ${Date.now() - startedAt} ms.`);
       if (!upstream.ok) {
         response.writeHead(upstream.status, { "content-type": "application/json" });
         return response.end(JSON.stringify(result));
@@ -87,8 +90,10 @@ export class CloudflareResponsesAdapter {
       }
       response.end();
     } catch (error) {
-      response.writeHead(502, { "content-type": "application/json" });
-      response.end(JSON.stringify({ error: { message: error.message || "Model adapter failed." } }));
+      const timedOut = error?.name === "TimeoutError";
+      console.error(`Model request ${timedOut ? "timed out" : "failed"} after ${Date.now() - startedAt} ms.`);
+      response.writeHead(timedOut ? 504 : 502, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: { message: timedOut ? "Model request timed out." : "Model adapter failed." } }));
     }
   }
 }
