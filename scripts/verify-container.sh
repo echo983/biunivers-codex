@@ -2,6 +2,7 @@
 set -euo pipefail
 
 IMAGE="${BIUNIVERS_CODEX_IMAGE:-biunivers-codex:dev}"
+IMAGE_VERSION="$(node -p 'require("./package.json").version')"
 TEST_ROOT="$(mktemp -d)"
 chmod 0777 "$TEST_ROOT"
 CONTAINER="biunivers-codex-verify-$$"
@@ -12,8 +13,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-docker build -t "$IMAGE" .
+docker build --build-arg "IMAGE_VERSION=$IMAGE_VERSION" -t "$IMAGE" .
 docker run --rm --entrypoint sh "$IMAGE" -c 'node --version && codex --version 2>/dev/null'
+test "$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$IMAGE")" = "$IMAGE_VERSION"
 docker run -d --name "$CONTAINER" \
   --read-only --tmpfs /tmp:rw,noexec,nosuid,size=256m \
   --cap-drop ALL --security-opt no-new-privileges \

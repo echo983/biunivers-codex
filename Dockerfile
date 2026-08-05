@@ -2,12 +2,13 @@ FROM ghcr.io/openai/codex-universal:latest
 
 ARG VCS_REF=unknown
 ARG CODEX_VERSION=0.146.0
+ARG IMAGE_VERSION=dev
 
 LABEL io.biunivers.workspace-application.protocol="1" \
       org.opencontainers.image.title="Biunivers Codex" \
       org.opencontainers.image.description="General Workspace assistant powered by Codex and a user-configured Cloudflare Workers AI model" \
       org.opencontainers.image.source="https://github.com/echo983/biunivers-codex" \
-      org.opencontainers.image.version="0.1.4" \
+      org.opencontainers.image.version="$IMAGE_VERSION" \
       org.opencontainers.image.revision="$VCS_REF" \
       org.opencontainers.image.licenses="MIT"
 

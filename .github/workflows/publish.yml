@@ -28,4 +28,6 @@ jobs:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
-          build-args: VCS_REF=${{ github.sha }}
+          build-args: |
+            VCS_REF=${{ github.sha }}
+            IMAGE_VERSION=${{ steps.meta.outputs.version }}
