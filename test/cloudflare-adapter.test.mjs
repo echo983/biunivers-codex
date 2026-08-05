@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adaptRequest, responseEvents } from "../src/cloudflare-adapter.mjs";
+import { adaptRequest, conversationMessages, responseEvents } from "../src/cloudflare-adapter.mjs";
 
 test("removes unsupported Codex fields and tools", () => {
   const adapted = adaptRequest({
@@ -22,4 +22,15 @@ test("converts a completed response into Codex-compatible SSE events", () => {
   assert.equal(events.some((event) => event.type === "response.output_text.delta" && event.delta === "hello"), true);
   assert.equal(events.at(-1).type, "response.completed");
   assert.equal(events.at(-1).response, response);
+});
+
+test("reduces cross-turn history to Cloudflare-compatible text messages", () => {
+  assert.deepEqual(conversationMessages(
+    [{ role: "user", content: [{ type: "input_text", text: "remember 17" }] }],
+    [{ type: "reasoning", summary: [] }, { role: "assistant", content: [{ type: "output_text", text: "ok" }] }],
+    [{ type: "function_call", name: "exec" }],
+  ), [
+    { role: "user", content: "remember 17" },
+    { role: "assistant", content: "ok" },
+  ]);
 });

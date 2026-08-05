@@ -44,8 +44,20 @@ export function responseEvents(response) {
   return events;
 }
 
+export function conversationMessages(...groups) {
+  return groups.flatMap((group) => (Array.isArray(group) ? group : [group])).flatMap((item) => {
+    if (!item || typeof item !== "object" || !["user", "assistant"].includes(item.role)) return [];
+    const parts = typeof item.content === "string" ? [item.content] : (item.content || [])
+      .filter((part) => ["input_text", "output_text"].includes(part?.type) && typeof part.text === "string")
+      .map((part) => part.text);
+    const content = parts.join("");
+    return content ? [{ role: item.role, content }] : [];
+  });
+}
+
 export class CloudflareResponsesAdapter {
   #server;
+  #conversations = new Map();
   constructor({ upstreamBaseUrl, apiKey }) {
     this.upstreamBaseUrl = upstreamBaseUrl.replace(/\/+$/, "");
     this.apiKey = apiKey;
@@ -71,7 +83,12 @@ export class CloudflareResponsesAdapter {
       }
       const chunks = [];
       for await (const chunk of request) chunks.push(chunk);
-      const body = adaptRequest(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      const incoming = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const previousId = incoming.previous_response_id;
+      const priorMessages = typeof previousId === "string" ? this.#conversations.get(previousId) : undefined;
+      const body = adaptRequest(incoming);
+      delete body.previous_response_id;
+      if (priorMessages) body.input = [...priorMessages, ...conversationMessages(body.input)];
       const upstream = await fetch(`${this.upstreamBaseUrl}/responses`, {
         method: "POST",
         signal: AbortSignal.timeout(90_000),
@@ -83,6 +100,11 @@ export class CloudflareResponsesAdapter {
       if (!upstream.ok) {
         response.writeHead(upstream.status, { "content-type": "application/json" });
         return response.end(JSON.stringify(result));
+      }
+      if (typeof result.id === "string") {
+        const transcript = conversationMessages(priorMessages || [], body.input, result.output || []);
+        this.#conversations.set(result.id, transcript);
+        if (this.#conversations.size > 64) this.#conversations.delete(this.#conversations.keys().next().value);
       }
       response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
       for (const event of responseEvents(result)) {
