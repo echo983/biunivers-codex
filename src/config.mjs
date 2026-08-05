@@ -20,7 +20,7 @@ export function loadConfig(env = process.env) {
     baseUrl,
     model,
     apiKeyPresent: Boolean(env.CODEX_MODEL_API_KEY),
-    codexHome: path.join(workspace, ".biunivers-codex"),
+    codexHome: "/tmp/biunivers-codex-home",
   };
 }
 

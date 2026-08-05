@@ -18,6 +18,8 @@ test("generates an internal provider config without persisting the secret", asyn
     CODEX_MODEL_NAME: "open-model",
     CODEX_MODEL_API_KEY: "must-not-be-written",
   });
+  assert.equal(config.codexHome, "/tmp/biunivers-codex-home");
+  assert.equal(config.codexHome.startsWith(`${workspace}${path.sep}`), false);
   await prepareCodexHome(config, "http://127.0.0.1:3210/v1");
   const content = await readFile(path.join(config.codexHome, "config.toml"), "utf8");
   assert.match(content, /wire_api = "responses"/);
