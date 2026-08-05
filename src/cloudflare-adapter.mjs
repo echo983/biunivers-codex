@@ -6,6 +6,7 @@ export const MAX_TOOL_CALLS_PER_TURN = 8;
 export const MAX_PROVIDER_ATTEMPTS = 3;
 const PROVIDER_FAILURE_MESSAGE = "模型服务暂时无法生成有效回答，本轮任务已停止，请稍后重试。";
 const TOOL_BUDGET_MESSAGE = `本轮已达到 ${MAX_TOOL_CALLS_PER_TURN} 次工具调用上限。请根据已有结果回答；如果信息仍不足，应明确说明并请用户发起新的指令。`;
+const OUTPUT_REPAIR_MESSAGE = "上一次生成只有内部推理，没有任何用户可见正文或合法工具调用。请立即返回用户可见的最终回答，或返回一个合法工具调用；不得再次只生成内部推理。";
 
 function textContent(content) {
   if (typeof content === "string") return content;
@@ -263,6 +264,7 @@ export class CloudflareResponsesAdapter {
       const body = buildChatRequest(incoming, priorConversation?.messages);
       const toolBudgetExhausted = enforceToolBudget(body, usedToolCalls);
       let result;
+      let outputRepairAdded = false;
       for (let attempt = 1; attempt <= MAX_PROVIDER_ATTEMPTS; attempt++) {
         try {
           const upstream = await fetch(`${this.upstreamBaseUrl}/chat/completions`, {
@@ -274,6 +276,10 @@ export class CloudflareResponsesAdapter {
           result = await upstream.json();
           console.log(`Model request completed with HTTP ${upstream.status} in ${Date.now() - startedAt} ms.`);
           if (upstream.ok && hasUsableChatOutput(result)) break;
+          if (upstream.ok && !outputRepairAdded) {
+            body.messages.push({ role: "system", content: OUTPUT_REPAIR_MESSAGE });
+            outputRepairAdded = true;
+          }
           console.warn(`Model request produced no usable result${attempt < MAX_PROVIDER_ATTEMPTS ? "; retrying." : "."}`);
         } catch {
           console.warn(`Model request failed${attempt < MAX_PROVIDER_ATTEMPTS ? "; retrying." : "."}`);

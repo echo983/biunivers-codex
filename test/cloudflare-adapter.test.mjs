@@ -252,8 +252,11 @@ test("completes a model tool-call round trip using string-only Chat content", as
 
 test("retries one reasoning-only completion instead of silently completing", async (t) => {
   let calls = 0;
+  const requests = [];
   const upstream = http.createServer(async (request, response) => {
-    for await (const _chunk of request) { /* consume request */ }
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
     calls++;
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({
@@ -273,6 +276,8 @@ test("retries one reasoning-only completion instead of silently completing", asy
   });
   assert.equal(response.status, 200);
   assert.equal(calls, 2);
+  assert.equal(requests[0].messages.some((message) => /上一次生成/.test(message.content)), false);
+  assert.equal(requests[1].messages.some((message) => /上一次生成/.test(message.content)), true);
   assert.match(await response.text(), /answer/);
 });
 
