@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { CodexClient } from "./codex-client.mjs";
 import { loadConfig, prepareCodexHome } from "./config.mjs";
 import { CloudflareResponsesAdapter } from "./cloudflare-adapter.mjs";
+import { saveSessionSummary, sessionSummaryPrompt } from "./session-summary.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const assets = new Map([
@@ -35,6 +36,7 @@ await codex.initialize();
 
 let threadId = null;
 let activeTurnId = null;
+let sessionSummaryState = null;
 const clients = new Set();
 const publish = (event) => {
   const data = `data: ${JSON.stringify(event)}\n\n`;
@@ -42,8 +44,27 @@ const publish = (event) => {
 };
 codex.on("notification", (message) => {
   if (message.method === "turn/started") activeTurnId = message.params?.turn?.id ?? activeTurnId;
+  if (message.method === "turn/started" && sessionSummaryState && !sessionSummaryState.turnId) {
+    sessionSummaryState.turnId = message.params?.turn?.id ?? null;
+  }
+  if (message.method === "item/agentMessage/delta" && sessionSummaryState) {
+    sessionSummaryState.markdown += message.params?.delta || "";
+  }
   if (message.method === "turn/completed") activeTurnId = null;
   publish(message);
+  if (message.method === "turn/completed" && sessionSummaryState
+    && (!sessionSummaryState.turnId || sessionSummaryState.turnId === message.params?.turn?.id)) {
+    const completed = sessionSummaryState;
+    sessionSummaryState = null;
+    const markdown = completed.markdown.trim();
+    if (message.params?.turn?.status === "completed" && markdown) {
+      saveSessionSummary(config.workspace, markdown, completed.createdAt)
+        .then((relativePath) => publish({ method: "app/session-summary-saved", params: { relativePath } }))
+        .catch(() => publish({ method: "app/session-summary-failed", params: { message: "会话摘要无法写入 Workspace。" } }));
+    } else {
+      publish({ method: "app/session-summary-failed", params: { message: "会话摘要未生成，Workspace 没有被修改。" } });
+    }
+  }
 });
 codex.on("diagnostic", (message) => console.error(`Codex: ${safeDiagnostic(message)}`));
 codex.on("exit", (error) => publish({ method: "app/error", params: { message: error.message } }));
@@ -66,6 +87,16 @@ const reply = (response, status, body) => {
   response.end(JSON.stringify(body));
 };
 
+async function startTurn(text) {
+  if (!threadId) {
+    const result = await codex.request("thread/start", { model: config.model, cwd: config.workspace });
+    threadId = result.thread.id;
+  }
+  const result = await codex.request("turn/start", { threadId, input: [{ type: "text", text }] });
+  activeTurnId = result.turn?.id ?? activeTurnId;
+  return { threadId, turnId: activeTurnId };
+}
+
 const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url, "http://localhost");
@@ -82,13 +113,21 @@ const server = http.createServer(async (request, response) => {
       const text = String(body.text || "").trim();
       if (!text) return reply(response, 400, { error: "Message is required." });
       if (activeTurnId) return reply(response, 409, { error: "A task is already running." });
-      if (!threadId) {
-        const result = await codex.request("thread/start", { model: config.model, cwd: config.workspace });
-        threadId = result.thread.id;
+      return reply(response, 202, await startTurn(text));
+    }
+    if (request.method === "POST" && url.pathname === "/api/session-summary") {
+      if (activeTurnId) return reply(response, 409, { error: "A task is already running." });
+      if (!threadId) return reply(response, 409, { error: "当前还没有可总结的会话。" });
+      const summary = { turnId: null, markdown: "", createdAt: new Date() };
+      sessionSummaryState = summary;
+      try {
+        const result = await startTurn(sessionSummaryPrompt());
+        if (sessionSummaryState === summary) summary.turnId ||= result.turnId;
+        return reply(response, 202, result);
+      } catch (error) {
+        if (sessionSummaryState === summary) sessionSummaryState = null;
+        throw error;
       }
-      const result = await codex.request("turn/start", { threadId, input: [{ type: "text", text }] });
-      activeTurnId = result.turn?.id ?? activeTurnId;
-      return reply(response, 202, { threadId, turnId: activeTurnId });
     }
     if (request.method === "POST" && url.pathname === "/api/cancel") {
       if (threadId && activeTurnId) await codex.request("turn/interrupt", { threadId, turnId: activeTurnId });

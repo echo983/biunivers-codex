@@ -28,4 +28,4 @@ npm test
 docker build -t biunivers-codex:dev .
 ```
 
-The current version is an early integration skeleton: one in-memory active conversation per running container, streamed agent text and activity events, cancellation, and a new-conversation action. Model-token streaming is currently synthesized after each Cloudflare response; tool activity still appears between model rounds. Rich approvals, historical conversation selection, attachments, multi-agent operation, web search, and unattended tasks are intentionally out of scope.
+The current version provides one in-memory active conversation per running container, streamed agent text, an ephemeral standardized task-status bar, coalesced tool activity, cancellation, confirmed new-conversation switching, and an explicit action that asks the current agent to save a Markdown session summary under `Biunivers Codex Sessions/` in the Workspace. Model-token streaming is currently synthesized after each Cloudflare response. Full transcript persistence, historical conversation restoration, rich approvals, attachments, multi-agent operation, web search, and unattended tasks are intentionally out of scope.
