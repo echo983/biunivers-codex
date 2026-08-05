@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import http from "node:http";
 
 const MAX_CONVERSATIONS = 64;
+export const MAX_TOOL_CALLS_PER_TURN = 8;
+const PROVIDER_FAILURE_MESSAGE = "模型服务暂时无法生成有效回答，本轮任务已停止，请稍后重试。";
+const TOOL_BUDGET_MESSAGE = `本轮已达到 ${MAX_TOOL_CALLS_PER_TURN} 次工具调用上限。请根据已有结果回答；如果信息仍不足，应明确说明并请用户发起新的指令。`;
 
 function textContent(content) {
   if (typeof content === "string") return content;
@@ -80,6 +83,33 @@ export function buildChatRequest(incoming, priorMessages = []) {
   if (incoming.parallel_tool_calls !== undefined) body.parallel_tool_calls = incoming.parallel_tool_calls;
   if (incoming.max_output_tokens !== undefined) body.max_completion_tokens = incoming.max_output_tokens;
   return body;
+}
+
+export function enforceToolBudget(body, usedToolCalls) {
+  if (usedToolCalls < MAX_TOOL_CALLS_PER_TURN) return false;
+  body.tool_choice = "none";
+  body.messages.push({ role: "system", content: TOOL_BUDGET_MESSAGE });
+  return true;
+}
+
+export function limitToolCalls(chat, remaining) {
+  const message = chat.choices?.[0]?.message;
+  if (!Array.isArray(message?.tool_calls) || message.tool_calls.length <= remaining) return chat;
+  const limited = structuredClone(chat);
+  limited.choices[0].message.tool_calls = limited.choices[0].message.tool_calls.slice(0, Math.max(0, remaining));
+  return limited;
+}
+
+export function terminalChatResponse(model, content) {
+  return {
+    model,
+    choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content } }],
+  };
+}
+
+function isToolContinuation(input) {
+  const items = Array.isArray(input) ? input : [input];
+  return items.some((item) => ["function_call_output", "custom_tool_call_output"].includes(item?.type));
 }
 
 export function chatResponseToResponses(chat, previousResponseId = null, customToolNames = new Set()) {
@@ -218,33 +248,39 @@ export class CloudflareResponsesAdapter {
       for await (const chunk of request) chunks.push(chunk);
       const incoming = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       const previousId = typeof incoming.previous_response_id === "string" ? incoming.previous_response_id : null;
-      const priorMessages = previousId ? this.#conversations.get(previousId) : undefined;
-      if (previousId && !priorMessages) {
+      const priorConversation = previousId ? this.#conversations.get(previousId) : undefined;
+      if (previousId && !priorConversation) {
         response.writeHead(404, { "content-type": "application/json" });
         return response.end('{"error":{"message":"Previous model response is no longer available."}}');
       }
-      const body = buildChatRequest(incoming, priorMessages);
+      const continuingToolRound = isToolContinuation(incoming.input);
+      const usedToolCalls = continuingToolRound ? priorConversation?.toolCalls || 0 : 0;
+      const body = buildChatRequest(incoming, priorConversation?.messages);
+      const toolBudgetExhausted = enforceToolBudget(body, usedToolCalls);
       let result;
       for (let attempt = 1; attempt <= 2; attempt++) {
-        const upstream = await fetch(`${this.upstreamBaseUrl}/chat/completions`, {
-          method: "POST",
-          signal: AbortSignal.timeout(90_000),
-          headers: { authorization: `Bearer ${this.apiKey}`, "content-type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        result = await upstream.json();
-        console.log(`Model request completed with HTTP ${upstream.status} in ${Date.now() - startedAt} ms.`);
-        if (!upstream.ok) {
-          response.writeHead(upstream.status, { "content-type": "application/json" });
-          return response.end(JSON.stringify(result));
+        try {
+          const upstream = await fetch(`${this.upstreamBaseUrl}/chat/completions`, {
+            method: "POST",
+            signal: AbortSignal.timeout(90_000),
+            headers: { authorization: `Bearer ${this.apiKey}`, "content-type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          result = await upstream.json();
+          console.log(`Model request completed with HTTP ${upstream.status} in ${Date.now() - startedAt} ms.`);
+          if (upstream.ok && hasUsableChatOutput(result)) break;
+          console.warn(`Model request produced no usable result${attempt === 1 ? "; retrying once." : "."}`);
+        } catch {
+          console.warn(`Model request failed${attempt === 1 ? "; retrying once." : "."}`);
         }
-        if (hasUsableChatOutput(result)) break;
-        console.warn(`Model returned no usable output${attempt === 1 ? "; retrying once." : "."}`);
       }
       if (!hasUsableChatOutput(result)) {
-        response.writeHead(502, { "content-type": "application/json" });
-        return response.end('{"error":{"message":"Model returned no usable output."}}');
+        result = terminalChatResponse(incoming.model, PROVIDER_FAILURE_MESSAGE);
       }
+      if (toolBudgetExhausted && result.choices?.[0]?.message?.tool_calls?.length) {
+        result = terminalChatResponse(incoming.model, TOOL_BUDGET_MESSAGE);
+      }
+      result = limitToolCalls(result, MAX_TOOL_CALLS_PER_TURN - usedToolCalls);
       const upstreamMessage = result.choices?.[0]?.message || {};
       console.log(JSON.stringify({
         event: "model_response_shape",
@@ -255,7 +291,11 @@ export class CloudflareResponsesAdapter {
       }));
       const customToolNames = new Set((incoming.tools || []).filter((tool) => tool?.type === "custom").map((tool) => tool.name));
       const converted = chatResponseToResponses(result, previousId, customToolNames);
-      this.#conversations.set(converted.id, appendAssistantMessage(body.messages, result));
+      const emittedToolCalls = result.choices?.[0]?.message?.tool_calls?.length || 0;
+      this.#conversations.set(converted.id, {
+        messages: appendAssistantMessage(body.messages, result),
+        toolCalls: usedToolCalls + emittedToolCalls,
+      });
       if (this.#conversations.size > MAX_CONVERSATIONS) this.#conversations.delete(this.#conversations.keys().next().value);
       response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
       for (const event of responseEvents(converted)) {

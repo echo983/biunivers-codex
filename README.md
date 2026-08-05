@@ -17,6 +17,7 @@ The first release targets Cloudflare Workers AI with `@cf/openai/gpt-oss-20b` or
 - User files live under `/workspace`. Codex's own caches, databases, downloaded skills, and temporary links live under `/tmp` and are never committed into the Workspace. The current lightweight conversation is ephemeral across container restarts.
 - The entrypoint passes the model API key through a mode-`0600` one-time file in `/tmp`, clears it from PID 1's environment, and the Web backend deletes the file before starting Codex or HTTP service. Codex connects to an internal loopback adapter and does not inherit the key.
 - The adapter translates text history, function declarations, calls, and results between Codex Responses and Cloudflare Chat Completions. It uses a non-streaming upstream call and converts the result to standard Responses SSE events for Codex.
+- Each user turn is limited to eight tool calls. Provider failures are attempted at most twice and then become a visible terminal answer, preventing nested retry storms.
 - Codex runs without its nested sandbox because the outer BWA runtime already provides a non-root OCI sandbox with no capabilities or host access.
 - Network access remains available under BWA v1. The agent can modify the current Workspace; the user controls commit, discard, stop, and Fork in Biunivers.
 

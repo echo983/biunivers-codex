@@ -6,10 +6,14 @@ import {
   buildChatRequest,
   chatResponseToResponses,
   CloudflareResponsesAdapter,
+  enforceToolBudget,
   hasUsableChatOutput,
+  limitToolCalls,
+  MAX_TOOL_CALLS_PER_TURN,
   responseEvents,
   responsesInputToChat,
   responsesToolsToChat,
+  terminalChatResponse,
 } from "../src/cloudflare-adapter.mjs";
 
 async function listen(server) {
@@ -23,6 +27,11 @@ async function listen(server) {
 function completedResponseId(sse) {
   const data = sse.split("\n").filter((line) => line.startsWith("data: ")).map((line) => JSON.parse(line.slice(6)));
   return data.find((event) => event.type === "response.completed")?.response?.id;
+}
+
+function completedResponse(sse) {
+  const data = sse.split("\n").filter((line) => line.startsWith("data: ")).map((line) => JSON.parse(line.slice(6)));
+  return data.find((event) => event.type === "response.completed")?.response;
 }
 
 test("translates Responses messages and tool results to Chat Completions", () => {
@@ -134,6 +143,30 @@ test("distinguishes usable output from reasoning-only completions", () => {
   assert.equal(hasUsableChatOutput({ choices: [{ message: { content: null, tool_calls: [{ id: "call_1" }] } }] }), true);
 });
 
+test("forces a final answer after the per-turn tool budget", () => {
+  const body = buildChatRequest({ model: "test", input: "continue", tools: [{ type: "function", name: "exec" }] });
+  assert.equal(enforceToolBudget(body, MAX_TOOL_CALLS_PER_TURN), true);
+  assert.equal(body.tool_choice, "none");
+  assert.match(body.messages.at(-1).content, /工具调用上限/);
+});
+
+test("does not emit more tool calls than the remaining budget", () => {
+  const chat = {
+    choices: [{ message: { content: null, tool_calls: [
+      { id: "one", type: "function", function: { name: "exec", arguments: "{}" } },
+      { id: "two", type: "function", function: { name: "exec", arguments: "{}" } },
+    ] } }],
+  };
+  assert.deepEqual(limitToolCalls(chat, 1).choices[0].message.tool_calls.map((call) => call.id), ["one"]);
+  assert.equal(chat.choices[0].message.tool_calls.length, 2);
+});
+
+test("builds a usable terminal response without tools", () => {
+  const chat = terminalChatResponse("test", "stopped");
+  assert.equal(hasUsableChatOutput(chat), true);
+  assert.equal(chat.choices[0].message.content, "stopped");
+});
+
 test("converts a completed response into Codex-compatible SSE events", () => {
   const response = chatResponseToResponses({
     model: "test", choices: [{ message: { role: "assistant", content: "hello" } }],
@@ -240,4 +273,71 @@ test("retries one reasoning-only completion instead of silently completing", asy
   assert.equal(response.status, 200);
   assert.equal(calls, 2);
   assert.match(await response.text(), /answer/);
+});
+
+test("turns repeated provider failures into one terminal model answer", async (t) => {
+  let calls = 0;
+  const upstream = http.createServer(async (request, response) => {
+    for await (const _chunk of request) { /* consume request */ }
+    calls++;
+    response.writeHead(500, { "content-type": "application/json" });
+    response.end('{"error":{"message":"temporary"}}');
+  });
+  const upstreamBaseUrl = await listen(upstream);
+  const adapter = new CloudflareResponsesAdapter({ upstreamBaseUrl, apiKey: "test-key" });
+  const adapterBaseUrl = await adapter.listen();
+  t.after(async () => { await adapter.close(); await new Promise((resolve) => upstream.close(resolve)); });
+  const response = await fetch(`${adapterBaseUrl}/responses`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: "test", input: "hello" }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal(calls, 2);
+  assert.match(await response.text(), /本轮任务已停止/);
+});
+
+test("forces the ninth model round to finish without another tool call", async (t) => {
+  const requests = [];
+  const upstream = http.createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    requests.push(body);
+    const final = body.tool_choice === "none";
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      model: "test",
+      choices: [{ message: final
+        ? { role: "assistant", content: "bounded" }
+        : { role: "assistant", content: null, tool_calls: [{
+          id: `call_${requests.length}`, type: "function", function: { name: "exec", arguments: "{}" },
+        }] } }],
+    }));
+  });
+  const upstreamBaseUrl = await listen(upstream);
+  const adapter = new CloudflareResponsesAdapter({ upstreamBaseUrl, apiKey: "test-key" });
+  const adapterBaseUrl = await adapter.listen();
+  t.after(async () => { await adapter.close(); await new Promise((resolve) => upstream.close(resolve)); });
+
+  let previousResponseId;
+  let callId;
+  let completed;
+  for (let round = 0; round <= MAX_TOOL_CALLS_PER_TURN; round++) {
+    const input = round === 0
+      ? "work"
+      : [{ type: "function_call_output", call_id: callId, output: "result" }];
+    const response = await fetch(`${adapterBaseUrl}/responses`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "test", input, previous_response_id: previousResponseId,
+        tools: [{ type: "function", name: "exec" }],
+      }),
+    });
+    completed = completedResponse(await response.text());
+    previousResponseId = completed.id;
+    callId = completed.output[0]?.call_id;
+  }
+  assert.equal(requests.length, MAX_TOOL_CALLS_PER_TURN + 1);
+  assert.equal(requests.at(-1).tool_choice, "none");
+  assert.equal(completed.output[0].content[0].text, "bounded");
 });
