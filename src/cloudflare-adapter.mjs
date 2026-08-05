@@ -12,6 +12,15 @@ function textContent(content) {
     .join("");
 }
 
+function normalizedChatMessage(message) {
+  const normalized = structuredClone(message);
+  normalized.content = textContent(normalized.content);
+  if (normalized.role === "assistant" && normalized.tool_calls?.length && !normalized.content) {
+    normalized.content = "";
+  }
+  return normalized;
+}
+
 export function responsesInputToChat(input) {
   const items = Array.isArray(input) ? input : typeof input === "string"
     ? [{ role: "user", content: input }]
@@ -56,9 +65,9 @@ export function responsesToolsToChat(tools = []) {
 }
 
 export function buildChatRequest(incoming, priorMessages = []) {
-  const messages = structuredClone(priorMessages);
+  const messages = priorMessages.map(normalizedChatMessage);
   if (!messages.length && incoming.instructions) messages.push({ role: "system", content: String(incoming.instructions) });
-  messages.push(...responsesInputToChat(incoming.input));
+  messages.push(...responsesInputToChat(incoming.input).map(normalizedChatMessage));
   const body = { model: incoming.model, messages, stream: false };
   const tools = responsesToolsToChat(incoming.tools);
   if (tools.length) body.tools = tools;
@@ -113,7 +122,7 @@ export function chatResponseToResponses(chat, previousResponseId = null) {
 export function appendAssistantMessage(messages, chat) {
   const message = chat.choices?.[0]?.message;
   if (!message) return messages;
-  const saved = { role: "assistant", content: typeof message.content === "string" ? message.content : null };
+  const saved = { role: "assistant", content: textContent(message.content) };
   if (Array.isArray(message.tool_calls) && message.tool_calls.length) saved.tool_calls = structuredClone(message.tool_calls);
   return [...messages, saved];
 }

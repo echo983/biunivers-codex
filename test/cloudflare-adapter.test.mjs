@@ -70,7 +70,18 @@ test("preserves multi-turn text and tool-call linkage", () => {
     model: "test", input: [{ type: "function_call_output", call_id: "call_1", output: "ok" }],
   }, saved);
   assert.deepEqual(second.messages.at(-2).tool_calls[0].id, "call_1");
+  assert.equal(second.messages.at(-2).content, "");
   assert.deepEqual(second.messages.at(-1), { role: "tool", tool_call_id: "call_1", content: "ok" });
+});
+
+test("normalizes all persisted Chat content to strings", () => {
+  const body = buildChatRequest({ model: "test", input: [{ role: "user", content: [{ type: "input_text", text: "next" }] }] }, [
+    { role: "user", content: [{ type: "input_text", text: "first" }] },
+    { role: "assistant", content: [{ type: "output_text", text: "answer" }] },
+    { role: "assistant", content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: "exec", arguments: "{}" } }] },
+  ]);
+  assert.equal(body.messages.every((message) => typeof message.content === "string"), true);
+  assert.deepEqual(body.messages.map((message) => message.content), ["first", "answer", "", "next"]);
 });
 
 test("converts Chat Completions text and calls into Responses output", () => {
@@ -129,5 +140,42 @@ test("keeps a multi-turn transcript while proxying Responses to Chat Completions
     { role: "user", content: "remember 1729" },
     { role: "assistant", content: "remembered" },
     { role: "user", content: "what number?" },
+  ]);
+});
+
+test("completes a model tool-call round trip using string-only Chat content", async (t) => {
+  const requests = [];
+  const upstream = http.createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    requests.push(body);
+    assert.equal(body.messages.every((message) => typeof message.content === "string"), true);
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      model: "test",
+      choices: [{ message: requests.length === 1
+        ? { role: "assistant", content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: "exec", arguments: "{}" } }] }
+        : { role: "assistant", content: "finished" } }],
+    }));
+  });
+  const upstreamBaseUrl = await listen(upstream);
+  const adapter = new CloudflareResponsesAdapter({ upstreamBaseUrl, apiKey: "test-key" });
+  const adapterBaseUrl = await adapter.listen();
+  t.after(async () => { await adapter.close(); await new Promise((resolve) => upstream.close(resolve)); });
+
+  const first = await fetch(`${adapterBaseUrl}/responses`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: "test", input: "list files", tools: [{ type: "function", name: "exec" }] }),
+  });
+  const firstId = completedResponseId(await first.text());
+  const second = await fetch(`${adapterBaseUrl}/responses`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: "test", previous_response_id: firstId, input: [{ type: "function_call_output", call_id: "call_1", output: [{ type: "input_text", text: "file.txt" }] }] }),
+  });
+  assert.equal(second.status, 200);
+  assert.deepEqual(requests[1].messages.slice(-2), [
+    { role: "assistant", content: "", tool_calls: [{ id: "call_1", type: "function", function: { name: "exec", arguments: "{}" } }] },
+    { role: "tool", tool_call_id: "call_1", content: "file.txt" },
   ]);
 });
