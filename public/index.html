@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Biunivers Codex</title><link rel="stylesheet" href="/styles.css"></head>
+<body>
+  <main>
+    <header><div><h1>Biunivers Codex</h1><p id="status">正在连接…</p></div><button id="newThread" class="quiet" type="button">新对话</button></header>
+    <section id="messages" aria-live="polite"><div class="welcome"><h2>Workspace 助手</h2><p>我可以阅读和修改当前工作空间中的文件，并运行其中可用的工具。</p></div></section>
+    <form id="composer"><textarea id="prompt" rows="3" placeholder="告诉我需要处理什么……" required></textarea><div><button id="cancel" class="quiet" type="button" disabled>停止</button><button id="send" type="submit">发送</button></div></form>
+  </main><script type="module" src="/app.js"></script>
+</body></html>
