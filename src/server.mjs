@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { CodexClient } from "./codex-client.mjs";
 import { loadConfig, prepareCodexHome } from "./config.mjs";
 import { CloudflareResponsesAdapter } from "./cloudflare-adapter.mjs";
-import { saveSessionSummary, sessionSummaryPrompt } from "./session-summary.mjs";
+import { loadSessionSummariesPrompt, saveSessionSummary, sessionSummaryPrompt } from "./session-summary.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const assets = new Map([
@@ -128,6 +128,10 @@ const server = http.createServer(async (request, response) => {
         if (sessionSummaryState === summary) sessionSummaryState = null;
         throw error;
       }
+    }
+    if (request.method === "POST" && url.pathname === "/api/session-summary/load") {
+      if (activeTurnId) return reply(response, 409, { error: "A task is already running." });
+      return reply(response, 202, await startTurn(loadSessionSummariesPrompt()));
     }
     if (request.method === "POST" && url.pathname === "/api/cancel") {
       if (threadId && activeTurnId) await codex.request("turn/interrupt", { threadId, turnId: activeTurnId });

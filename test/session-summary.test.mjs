@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { saveSessionSummary, sessionSummaryPrompt } from "../src/session-summary.mjs";
+import { loadSessionSummariesPrompt, saveSessionSummary, sessionSummaryPrompt } from "../src/session-summary.mjs";
 
 test("requests Markdown without asking the model to touch files", () => {
   const prompt = sessionSummaryPrompt();
@@ -11,6 +11,14 @@ test("requests Markdown without asking the model to touch files", () => {
   assert.match(prompt, /只输出 Markdown 摘要正文/);
   assert.match(prompt, /会话目标/);
   assert.match(prompt, /不包含凭据/);
+});
+
+test("loads summaries only from the durable Workspace summary directory", () => {
+  const prompt = loadSessionSummariesPrompt();
+  assert.match(prompt, /\/workspace\/Biunivers Codex Sessions\//);
+  assert.match(prompt, /不得搜索或读取任何其他目录/);
+  assert.match(prompt, /最近 10 份/);
+  assert.match(prompt, /不是权威事实来源/);
 });
 
 test("writes summaries under Workspace without overwriting", async (t) => {

@@ -3,9 +3,9 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Biunivers Codex</title><link rel="stylesheet" href="/styles.css"></head>
 <body>
   <main>
-    <header><div><h1>Biunivers Codex</h1><p id="status">正在连接…</p></div><div class="header-actions"><button id="saveSummary" class="quiet" type="button" disabled>保存会话摘要</button><button id="newThread" class="quiet" type="button">开始新会话</button></div></header>
+    <header><div><h1>Biunivers Codex</h1><p id="status">正在连接…</p></div><div class="header-actions"><button id="loadSummary" class="quiet" type="button">加载会话摘要</button><button id="saveSummary" class="quiet" type="button" disabled>保存会话摘要</button><button id="newThread" class="quiet" type="button">开始新会话</button></div></header>
     <section id="messages" aria-live="polite"><div class="welcome"><h2>Workspace 助手</h2><p>我可以阅读和修改当前工作空间中的文件，并运行其中可用的工具。</p></div></section>
     <div id="taskState" role="status" aria-live="polite" hidden><span class="task-pulse" aria-hidden="true"></span><span id="taskStateText">正在思考…</span></div>
-    <form id="composer"><textarea id="prompt" rows="3" placeholder="告诉我需要处理什么……" required></textarea><div><button id="cancel" class="quiet" type="button" disabled>停止</button><button id="send" type="submit">发送</button></div></form>
+    <form id="composer"><textarea id="prompt" rows="3" placeholder="告诉我需要处理什么……（Enter 发送，Shift+Enter 换行）" required></textarea><div><button id="cancel" class="quiet" type="button" disabled>停止</button><button id="send" type="submit">发送</button></div></form>
   </main><script type="module" src="/app.js"></script>
 </body></html>

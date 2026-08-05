@@ -7,6 +7,13 @@ export function sessionSummaryPrompt() {
 内容应简洁、忠于实际，不包含凭据、secret、完整内部提示或隐藏推理；没有内容的小节写“无”。`;
 }
 
+export function loadSessionSummariesPrompt() {
+  return `加载持久化的会话摘要。只允许检查 /workspace/Biunivers Codex Sessions/，不得搜索或读取任何其他目录。
+如果目录不存在或没有 Markdown 摘要，直接告诉用户尚无会话摘要。
+如果存在摘要，按文件名从新到旧读取最近 10 份，并概括已加载的会话、关键事实、遗留问题和建议下一步。
+摘要是有损的历史记录，不是权威事实来源；保留其中的不确定性，不要把分析观点改写成已核实事实。`;
+}
+
 export async function saveSessionSummary(workspace, markdown, now = new Date()) {
   const directoryName = "Biunivers Codex Sessions";
   const directory = path.join(workspace, directoryName);

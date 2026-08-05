@@ -7,6 +7,7 @@ const status = document.querySelector("#status");
 const taskState = document.querySelector("#taskState");
 const taskStateText = document.querySelector("#taskStateText");
 const newThread = document.querySelector("#newThread");
+const loadSummary = document.querySelector("#loadSummary");
 const saveSummary = document.querySelector("#saveSummary");
 let agentMessage = null;
 let readyLabel = "正在连接…";
@@ -39,6 +40,7 @@ function busy(value, stateText = "正在等待模型响应…") {
   send.disabled = value;
   cancel.disabled = !value;
   newThread.disabled = value;
+  loadSummary.disabled = value;
   saveSummary.disabled = value || !hasConversation;
   prompt.disabled = value;
   status.textContent = readyLabel;
@@ -134,7 +136,19 @@ form.addEventListener("submit", async (event) => {
   await post("/api/messages", { text });
 });
 
+prompt.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return;
+  event.preventDefault();
+  if (!send.disabled) form.requestSubmit();
+});
+
 cancel.addEventListener("click", () => post("/api/cancel"));
+
+loadSummary.addEventListener("click", async () => {
+  addMessage("user", "加载会话摘要");
+  busy(true, "正在加载会话摘要…");
+  await post("/api/session-summary/load");
+});
 
 saveSummary.addEventListener("click", async () => {
   addMessage("user", "保存当前会话摘要");
