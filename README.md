@@ -6,9 +6,9 @@ Biunivers Codex is a general conversational Workspace Application. It runs Codex
 
 | Variable | Required | Sensitive | Example |
 |---|---:|---:|---|
-| `BIUNIVERS_MODEL_BASE_URL` | yes | no | `https://api.cloudflare.com/client/v4/accounts/<account-id>/ai/v1` |
-| `BIUNIVERS_MODEL_NAME` | yes | no | `@cf/openai/gpt-oss-20b` |
-| `BIUNIVERS_MODEL_API_KEY` | yes for Workers AI | yes | configure in the BWA sensitive-variable editor |
+| `CODEX_MODEL_BASE_URL` | yes | no | `https://api.cloudflare.com/client/v4/accounts/<account-id>/ai/v1` |
+| `CODEX_MODEL_NAME` | yes | no | `@cf/openai/gpt-oss-20b` |
+| `CODEX_MODEL_API_KEY` | yes for Workers AI | yes | configure in the BWA sensitive-variable editor |
 
 The endpoint must implement the OpenAI Responses API. The first release targets Cloudflare Workers AI with `@cf/openai/gpt-oss-20b` or `@cf/openai/gpt-oss-120b`. It does not use ChatGPT or OpenAI login and does not use Codex `--oss`, which is intended for built-in local Ollama/LM Studio providers.
 

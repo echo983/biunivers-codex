@@ -10,7 +10,7 @@ export class CodexClient extends EventEmitter {
   constructor({ cwd, codexHome }) {
     super();
     const childEnv = { ...process.env, CODEX_HOME: codexHome };
-    delete childEnv.BIUNIVERS_MODEL_API_KEY;
+    delete childEnv.CODEX_MODEL_API_KEY;
     delete childEnv.CLOUDFLARE_API_KEY;
     delete childEnv.CLOUDFLARE_API_TOKEN;
     this.#proc = spawn("codex", ["app-server"], {

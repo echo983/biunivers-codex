@@ -13,17 +13,17 @@ const assets = new Map([
   ["/styles.css", ["public/styles.css", "text/css; charset=utf-8"]],
 ]);
 const config = loadConfig();
-let modelApiKey = process.env.BIUNIVERS_MODEL_API_KEY;
-const modelKeyFile = process.env.BIUNIVERS_MODEL_KEY_FILE;
+let modelApiKey = process.env.CODEX_MODEL_API_KEY;
+const modelKeyFile = process.env.CODEX_MODEL_KEY_FILE;
 if (!modelApiKey && modelKeyFile) {
   try {
     modelApiKey = (await readFile(modelKeyFile, "utf8")).trim();
   } finally {
     await unlink(modelKeyFile).catch(() => {});
-    delete process.env.BIUNIVERS_MODEL_KEY_FILE;
+    delete process.env.CODEX_MODEL_KEY_FILE;
   }
 }
-if (!modelApiKey) throw new Error("BIUNIVERS_MODEL_API_KEY is required.");
+if (!modelApiKey) throw new Error("CODEX_MODEL_API_KEY is required.");
 const adapter = new CloudflareResponsesAdapter({
   upstreamBaseUrl: config.baseUrl,
   apiKey: modelApiKey,

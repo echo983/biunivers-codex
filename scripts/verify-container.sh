@@ -18,9 +18,9 @@ docker run -d --name "$CONTAINER" \
   --read-only --tmpfs /tmp:rw,noexec,nosuid,size=256m \
   --cap-drop ALL --security-opt no-new-privileges \
   --user 65532:65532 -p 127.0.0.1::8080 \
-  -e BIUNIVERS_MODEL_BASE_URL=https://example.invalid/v1 \
-  -e BIUNIVERS_MODEL_NAME=@cf/openai/gpt-oss-20b \
-  -e BIUNIVERS_MODEL_API_KEY=verification-secret \
+  -e CODEX_MODEL_BASE_URL=https://example.invalid/v1 \
+  -e CODEX_MODEL_NAME=@cf/openai/gpt-oss-20b \
+  -e CODEX_MODEL_API_KEY=verification-secret \
   -v "$TEST_ROOT:/workspace" "$IMAGE" >/dev/null
 
 PORT="$(docker port "$CONTAINER" 8080/tcp | sed 's/.*://')"
@@ -37,7 +37,7 @@ if test "$READY" != true; then
 fi
 curl -fsS "http://127.0.0.1:$PORT/" | grep -q "Biunivers Codex"
 test "$(docker inspect -f '{{.Config.User}}' "$CONTAINER")" = "65532:65532"
-if docker exec "$CONTAINER" sh -c 'tr "\\0" "\\n" < /proc/1/environ | grep -q "^BIUNIVERS_MODEL_API_KEY="'; then
+if docker exec "$CONTAINER" sh -c 'tr "\\0" "\\n" < /proc/1/environ | grep -q "^CODEX_MODEL_API_KEY="'; then
   echo "敏感变量仍存在于 PID 1 环境。" >&2
   exit 1
 fi

@@ -5,16 +5,21 @@ const quote = (value) => JSON.stringify(String(value));
 
 export function loadConfig(env = process.env) {
   const workspace = path.resolve(env.BIUNIVERS_WORKSPACE || "/workspace");
-  const baseUrl = env.BIUNIVERS_MODEL_BASE_URL?.replace(/\/+$/, "");
-  const model = env.BIUNIVERS_MODEL_NAME;
-  if (!baseUrl) throw new Error("BIUNIVERS_MODEL_BASE_URL is required.");
-  if (!model) throw new Error("BIUNIVERS_MODEL_NAME is required.");
+  const baseUrl = env.CODEX_MODEL_BASE_URL?.replace(/\/+$/, "");
+  const model = env.CODEX_MODEL_NAME;
+  if (!baseUrl) throw new Error("CODEX_MODEL_BASE_URL is required.");
+  if (!model) throw new Error("CODEX_MODEL_NAME is required.");
+  let endpoint;
+  try { endpoint = new URL(baseUrl); } catch { throw new Error("CODEX_MODEL_BASE_URL is invalid."); }
+  if (endpoint.protocol !== "https:" && endpoint.hostname !== "127.0.0.1") {
+    throw new Error("CODEX_MODEL_BASE_URL must use HTTPS.");
+  }
   return {
     workspace,
     port: Number(env.BIUNIVERS_HTTP_PORT || 8080),
     baseUrl,
     model,
-    apiKeyPresent: Boolean(env.BIUNIVERS_MODEL_API_KEY),
+    apiKeyPresent: Boolean(env.CODEX_MODEL_API_KEY),
     codexHome: path.join(workspace, ".biunivers-codex"),
   };
 }
@@ -46,7 +51,7 @@ inherit = "core"
 ignore_default_excludes = false
 
 [shell_environment_policy.filters]
-BIUNIVERS_MODEL_API_KEY = "exclude"
+CODEX_MODEL_API_KEY = "exclude"
 CLOUDFLARE_API_KEY = "exclude"
 CLOUDFLARE_API_TOKEN = "exclude"
 `;
