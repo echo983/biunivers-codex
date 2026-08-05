@@ -9,6 +9,7 @@ import {
   enforceToolBudget,
   hasUsableChatOutput,
   limitToolCalls,
+  MAX_PROVIDER_ATTEMPTS,
   MAX_TOOL_CALLS_PER_TURN,
   responseEvents,
   responsesInputToChat,
@@ -275,7 +276,7 @@ test("retries one reasoning-only completion instead of silently completing", asy
   assert.match(await response.text(), /answer/);
 });
 
-test("turns repeated provider failures into one terminal model answer", async (t) => {
+test("turns bounded provider failures into one terminal model answer", async (t) => {
   let calls = 0;
   const upstream = http.createServer(async (request, response) => {
     for await (const _chunk of request) { /* consume request */ }
@@ -292,7 +293,7 @@ test("turns repeated provider failures into one terminal model answer", async (t
     body: JSON.stringify({ model: "test", input: "hello" }),
   });
   assert.equal(response.status, 200);
-  assert.equal(calls, 2);
+  assert.equal(calls, MAX_PROVIDER_ATTEMPTS);
   assert.match(await response.text(), /本轮任务已停止/);
 });
 

@@ -3,6 +3,7 @@ import http from "node:http";
 
 const MAX_CONVERSATIONS = 64;
 export const MAX_TOOL_CALLS_PER_TURN = 8;
+export const MAX_PROVIDER_ATTEMPTS = 3;
 const PROVIDER_FAILURE_MESSAGE = "模型服务暂时无法生成有效回答，本轮任务已停止，请稍后重试。";
 const TOOL_BUDGET_MESSAGE = `本轮已达到 ${MAX_TOOL_CALLS_PER_TURN} 次工具调用上限。请根据已有结果回答；如果信息仍不足，应明确说明并请用户发起新的指令。`;
 
@@ -110,6 +111,10 @@ export function terminalChatResponse(model, content) {
 function isToolContinuation(input) {
   const items = Array.isArray(input) ? input : [input];
   return items.some((item) => ["function_call_output", "custom_tool_call_output"].includes(item?.type));
+}
+
+function retryDelay(attempt) {
+  return new Promise((resolve) => setTimeout(resolve, attempt * 250));
 }
 
 export function chatResponseToResponses(chat, previousResponseId = null, customToolNames = new Set()) {
@@ -258,7 +263,7 @@ export class CloudflareResponsesAdapter {
       const body = buildChatRequest(incoming, priorConversation?.messages);
       const toolBudgetExhausted = enforceToolBudget(body, usedToolCalls);
       let result;
-      for (let attempt = 1; attempt <= 2; attempt++) {
+      for (let attempt = 1; attempt <= MAX_PROVIDER_ATTEMPTS; attempt++) {
         try {
           const upstream = await fetch(`${this.upstreamBaseUrl}/chat/completions`, {
             method: "POST",
@@ -269,10 +274,11 @@ export class CloudflareResponsesAdapter {
           result = await upstream.json();
           console.log(`Model request completed with HTTP ${upstream.status} in ${Date.now() - startedAt} ms.`);
           if (upstream.ok && hasUsableChatOutput(result)) break;
-          console.warn(`Model request produced no usable result${attempt === 1 ? "; retrying once." : "."}`);
+          console.warn(`Model request produced no usable result${attempt < MAX_PROVIDER_ATTEMPTS ? "; retrying." : "."}`);
         } catch {
-          console.warn(`Model request failed${attempt === 1 ? "; retrying once." : "."}`);
+          console.warn(`Model request failed${attempt < MAX_PROVIDER_ATTEMPTS ? "; retrying." : "."}`);
         }
+        if (attempt < MAX_PROVIDER_ATTEMPTS) await retryDelay(attempt);
       }
       if (!hasUsableChatOutput(result)) {
         result = terminalChatResponse(incoming.model, PROVIDER_FAILURE_MESSAGE);
