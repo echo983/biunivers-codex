@@ -30,7 +30,7 @@ export class CodexClient extends EventEmitter {
 
   async initialize() {
     await this.request("initialize", {
-      clientInfo: { name: "biunivers_codex", title: "Biunivers Codex", version: "0.1.3" },
+      clientInfo: { name: "biunivers_codex", title: "Biunivers Codex", version: "0.1.4" },
     });
     this.notify("initialized", {});
   }

@@ -7,7 +7,7 @@ LABEL io.biunivers.workspace-application.protocol="1" \
       org.opencontainers.image.title="Biunivers Codex" \
       org.opencontainers.image.description="General Workspace assistant powered by Codex and a user-configured Cloudflare Workers AI model" \
       org.opencontainers.image.source="https://github.com/echo983/biunivers-codex" \
-      org.opencontainers.image.version="0.1.3" \
+      org.opencontainers.image.version="0.1.4" \
       org.opencontainers.image.revision="$VCS_REF" \
       org.opencontainers.image.licenses="MIT"
 

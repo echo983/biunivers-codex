@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adaptRequest, conversationMessages, responseEvents } from "../src/cloudflare-adapter.mjs";
+import { adaptRequest, conversationMessages, normalizeConversationInput, responseEvents } from "../src/cloudflare-adapter.mjs";
 
 test("removes unsupported Codex fields and tools", () => {
   const adapted = adaptRequest({
@@ -33,4 +33,20 @@ test("reduces cross-turn history to Cloudflare-compatible text messages", () => 
     { role: "user", content: "remember 17" },
     { role: "assistant", content: "ok" },
   ]);
+});
+
+test("recognizes an inline structured multi-turn transcript", () => {
+  const input = [
+    { role: "user", content: [{ type: "input_text", text: "remember 1729" }] },
+    { role: "assistant", content: [{ type: "output_text", text: "remembered" }] },
+    { role: "user", content: [{ type: "input_text", text: "what number?" }] },
+  ];
+  const transcript = normalizeConversationInput(input);
+  assert.deepEqual(transcript, [
+    { role: "user", content: "remember 1729" },
+    { role: "assistant", content: "remembered" },
+    { role: "user", content: "what number?" },
+  ]);
+  const single = [input[0]];
+  assert.equal(normalizeConversationInput(single), single);
 });

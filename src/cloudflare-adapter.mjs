@@ -55,6 +55,11 @@ export function conversationMessages(...groups) {
   });
 }
 
+export function normalizeConversationInput(input, priorMessages) {
+  const messages = conversationMessages(priorMessages || [], input);
+  return priorMessages || messages.length > 1 ? messages : input;
+}
+
 export class CloudflareResponsesAdapter {
   #server;
   #conversations = new Map();
@@ -88,7 +93,7 @@ export class CloudflareResponsesAdapter {
       const priorMessages = typeof previousId === "string" ? this.#conversations.get(previousId) : undefined;
       const body = adaptRequest(incoming);
       delete body.previous_response_id;
-      if (priorMessages) body.input = [...priorMessages, ...conversationMessages(body.input)];
+      body.input = normalizeConversationInput(body.input, priorMessages);
       const upstream = await fetch(`${this.upstreamBaseUrl}/responses`, {
         method: "POST",
         signal: AbortSignal.timeout(90_000),
