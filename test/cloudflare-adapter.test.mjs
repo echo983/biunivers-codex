@@ -37,11 +37,27 @@ test("translates Responses messages and tool results to Chat Completions", () =>
 test("translates Responses function declarations", () => {
   assert.deepEqual(responsesToolsToChat([
     { type: "function", name: "exec", description: "Run", parameters: { type: "object" }, strict: false },
+    { type: "custom", name: "apply_patch", description: "Patch files" },
     { type: "web_search" },
-  ]), [{
-    type: "function",
-    function: { name: "exec", description: "Run", parameters: { type: "object" }, strict: false },
-  }]);
+  ]), [
+    { type: "function", function: { name: "exec", description: "Run", parameters: { type: "object" }, strict: false } },
+    { type: "function", function: {
+      name: "apply_patch", description: "Patch files",
+      parameters: { type: "object", properties: { input: { type: "string" } }, required: ["input"], additionalProperties: false },
+    } },
+  ]);
+});
+
+test("wraps Responses custom tool calls for Chat Completions", () => {
+  assert.deepEqual(responsesInputToChat([
+    { type: "custom_tool_call", call_id: "call_patch", name: "apply_patch", input: "*** Begin Patch" },
+    { type: "custom_tool_call_output", call_id: "call_patch", output: "Done" },
+  ]), [
+    { role: "assistant", content: null, tool_calls: [{
+      id: "call_patch", type: "function", function: { name: "apply_patch", arguments: "{\"input\":\"*** Begin Patch\"}" },
+    }] },
+    { role: "tool", tool_call_id: "call_patch", content: "Done" },
+  ]);
 });
 
 test("builds a bounded-provider request without Responses-only fields", () => {
@@ -96,6 +112,19 @@ test("converts Chat Completions text and calls into Responses output", () => {
     id: converted.output[1].id, type: "function_call", call_id: "call_1", name: "exec", arguments: "{\"x\":1}", status: "completed",
   });
   assert.equal(converted.usage.total_tokens, 5);
+});
+
+test("restores wrapped Chat calls to Responses custom tool calls", () => {
+  const converted = chatResponseToResponses({
+    model: "test",
+    choices: [{ message: { role: "assistant", content: null, tool_calls: [{
+      id: "call_patch", type: "function", function: { name: "apply_patch", arguments: "{\"input\":\"*** Begin Patch\"}" },
+    }] } }],
+  }, null, new Set(["apply_patch"]));
+  assert.deepEqual(converted.output[0], {
+    id: converted.output[0].id, type: "custom_tool_call", call_id: "call_patch",
+    name: "apply_patch", input: "*** Begin Patch", status: "completed",
+  });
 });
 
 test("converts a completed response into Codex-compatible SSE events", () => {

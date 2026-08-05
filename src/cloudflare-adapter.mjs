@@ -33,19 +33,22 @@ export function responsesInputToChat(input) {
       if (content) messages.push({ role: item.role === "developer" ? "system" : item.role, content });
       continue;
     }
-    if (item.type === "function_call" && item.call_id && item.name) {
+    if (["function_call", "custom_tool_call"].includes(item.type) && item.call_id && item.name) {
+      const argumentsText = item.type === "custom_tool_call"
+        ? JSON.stringify({ input: String(item.input ?? "") })
+        : item.arguments || "{}";
       messages.push({
         role: "assistant",
         content: null,
         tool_calls: [{
           id: item.call_id,
           type: "function",
-          function: { name: item.name, arguments: item.arguments || "{}" },
+          function: { name: item.name, arguments: argumentsText },
         }],
       });
       continue;
     }
-    if (item.type === "function_call_output" && item.call_id) {
+    if (["function_call_output", "custom_tool_call_output"].includes(item.type) && item.call_id) {
       messages.push({ role: "tool", tool_call_id: item.call_id, content: textContent(item.output) || String(item.output ?? "") });
     }
   }
@@ -53,13 +56,15 @@ export function responsesInputToChat(input) {
 }
 
 export function responsesToolsToChat(tools = []) {
-  return tools.filter((tool) => tool?.type === "function" && tool.name).map((tool) => ({
+  return tools.filter((tool) => ["function", "custom"].includes(tool?.type) && tool.name).map((tool) => ({
     type: "function",
     function: {
       name: tool.name,
       ...(tool.description ? { description: tool.description } : {}),
-      parameters: tool.parameters || { type: "object", properties: {} },
-      ...(typeof tool.strict === "boolean" ? { strict: tool.strict } : {}),
+      parameters: tool.type === "custom"
+        ? { type: "object", properties: { input: { type: "string" } }, required: ["input"], additionalProperties: false }
+        : tool.parameters || { type: "object", properties: {} },
+      ...(tool.type === "function" && typeof tool.strict === "boolean" ? { strict: tool.strict } : {}),
     },
   }));
 }
@@ -77,7 +82,7 @@ export function buildChatRequest(incoming, priorMessages = []) {
   return body;
 }
 
-export function chatResponseToResponses(chat, previousResponseId = null) {
+export function chatResponseToResponses(chat, previousResponseId = null, customToolNames = new Set()) {
   const choice = chat.choices?.[0] || {};
   const message = choice.message || {};
   const output = [];
@@ -92,6 +97,19 @@ export function chatResponseToResponses(chat, previousResponseId = null) {
   }
   for (const call of message.tool_calls || []) {
     if (call?.type !== "function" || !call.function?.name) continue;
+    if (customToolNames.has(call.function.name)) {
+      let input = call.function.arguments || "";
+      try { input = JSON.parse(input).input ?? input; } catch { /* Preserve malformed input for Codex to report. */ }
+      output.push({
+        id: `ctc_${randomUUID().replaceAll("-", "")}`,
+        type: "custom_tool_call",
+        call_id: call.id,
+        name: call.function.name,
+        input: String(input),
+        status: "completed",
+      });
+      continue;
+    }
     output.push({
       id: `fc_${randomUUID().replaceAll("-", "")}`,
       type: "function_call",
@@ -210,7 +228,8 @@ export class CloudflareResponsesAdapter {
         response.writeHead(upstream.status, { "content-type": "application/json" });
         return response.end(JSON.stringify(result));
       }
-      const converted = chatResponseToResponses(result, previousId);
+      const customToolNames = new Set((incoming.tools || []).filter((tool) => tool?.type === "custom").map((tool) => tool.name));
+      const converted = chatResponseToResponses(result, previousId, customToolNames);
       this.#conversations.set(converted.id, appendAssistantMessage(body.messages, result));
       if (this.#conversations.size > MAX_CONVERSATIONS) this.#conversations.delete(this.#conversations.keys().next().value);
       response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
